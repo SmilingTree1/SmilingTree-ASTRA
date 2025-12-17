@@ -19,8 +19,8 @@ def init_transmitter(tx_pin, rx_pin):
         uart_transmitter = machine.UART(0, baudrate=115200, tx=machine.Pin(tx_pin), rx=machine.Pin(rx_pin))
         TRANSMITTER_INITIALIZED = True
         print("UART transmitter initialized successfully")
-    except:
-        print(f"Failed to initialize UART transmitter")
+    except(Exception) as e:
+        print(f"Failed to initialize UART transmitter: {e}")
         TRANSMITTER_INITIALIZED = False
     return uart_transmitter
 
@@ -40,6 +40,7 @@ def init_gps(tx_pin, rx_pin):
 # Initialize BMP sensor
 def init_bmp(sda_pin, scl_pin):
     global BMP_INITIALIZED
+    bmp = None  # Initialize to None in case of failure
     try:
         i2c = machine.I2C(0, sda=machine.Pin(sda_pin), scl=machine.Pin(scl_pin))
         bmp = bmpxxx.BMP390(i2c, address=0x77)  # Specify the correct I2C address
@@ -156,7 +157,6 @@ sd_card = init_sd_card(spi_id=1, sck_pin=10, mosi_pin=11, miso_pin=8, cs_pin=9)
 if BMP_INITIALIZED:
     bmp.sea_level_pressure = 1025.90  # Set sea level pressure for accurate altitude readings
 
-
 def send_cmd(uart:machine.UART, cmd:str, wait_response=True, timeout=0.5, debug=False):
     if debug:
         print(f"Sending: {cmd}")
@@ -214,6 +214,7 @@ while True:
     # Check if BMP is initialized. If not, then use default of None for parsing
     if BMP_INITIALIZED:
         altitude = bmp.altitude
+        altitude = round(altitude, 2)
     else:
         altitude = None
     
@@ -226,7 +227,8 @@ while True:
     
     #transmit data in parsable format: {altitude}#{gpsdata}
     msg = f"{altitude}#{gps_data}"
-    print(f"[TX] Alt: {altitude:.2f}m | GPS: {gps_data if gps_data else 'No Fix'}")
+
+    print(f"[TX] Alt: {altitude if altitude is not None else 'None'} | GPS: {gps_data if gps_data else 'No Fix'}")
     
     # Write data to SD card
     sd_line = f"{altitude}#{gps_data if gps_data else 'None'}"
@@ -234,8 +236,8 @@ while True:
         print("    ✓ Logged to SD")
     
     # Send command and check for response
-    response = send_cmd(uart_transmitter, f"AT+SEND=2,{len(msg)},{msg}", wait_response=True, timeout=0.3)
+    response = send_cmd(uart_transmitter, f"AT+SEND=2,{len(msg)},{msg}", wait_response=True, timeout=0.3, debug = True)
     if response and ("+OK" in response or response == "OK"):
         print("    ✓ Sent via LoRa")
                 
-    time.sleep(0.25)  # Minimal delay - fastest possible (0.25)
+    time.sleep(1)  # Minimal delay - fastest possible (0.25)
