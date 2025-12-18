@@ -105,6 +105,7 @@ def write_to_sd(data_line, filename="/sd/flight_data.txt"):
 
 
 
+
 """
 Obtain GPS data
 NOTE: https://core-electronics.com.au/guides/raspberry-pi-pico/how-to-add-gps-to-a-raspberry-pi-pico/ has the information on parsing GPS data
