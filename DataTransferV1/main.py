@@ -10,7 +10,7 @@ GPS_INITIALIZED = False
 BMP_INITIALIZED = False
 SD_INITIALIZED = False
 global has_fix
-has_fix = False
+has_fix = 0
 
 #BUZZER:
 tones = {
@@ -142,7 +142,6 @@ NOTE: gps_parser returns positive and negative values for ease in calculations. 
 """
 def get_gps_data(gps_uart, debug=False):
     global has_fix
-    has_fix = False
     try:
         # Collect GPS data as fast as possible (0.3 seconds)
         raw_data = ""
@@ -163,7 +162,7 @@ def get_gps_data(gps_uart, debug=False):
                 print(f"GPS Debug: has_fix={data.has_fix}, lat={data.latitude:.6f}, lon={data.longitude:.6f}, sats={data.satellites}, date={data.date}")
             
             if data.has_fix:
-                has_fix = True
+                has_fix +=1
                 return f"{data.latitude:.6f}#{data.longitude:.6f}#{data.time}#{data.date}"
             else:
                 if debug:
@@ -295,7 +294,7 @@ while True:
         print("    ✓ Logged to SD")
     
     # Send command and check for response
-    if has_fix:
+    if has_fix<=20:
         beeper.duty_u16(1024)  # 50% duty cycle
         beeper.freq(tones["c"])
     response = send_cmd(uart_transmitter, f"AT+SEND=2,{len(msg)},{msg}", wait_response=True, timeout=0.3, debug = True)
