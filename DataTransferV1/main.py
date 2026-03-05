@@ -9,6 +9,7 @@ TRANSMITTER_INITIALIZED = False
 GPS_INITIALIZED = False
 BMP_INITIALIZED = False
 SD_INITIALIZED = False
+sd_file = None
 global has_fix
 has_fix = 0
 
@@ -73,7 +74,7 @@ def init_bmp(sda_pin, scl_pin):
     try:
         i2c = machine.I2C(0, sda=machine.Pin(sda_pin), scl=machine.Pin(scl_pin))
         bmp = bmpxxx.BMP390(i2c, address=0x77)  # Specify the correct I2C address
-        bmp.sea_level_pressure = 1025.90  # Set sea level pressure for accurate altitude readings
+        bmp.sea_level_pressure = 1020  # Set sea level pressure for accurate altitude readings
         BMP_INITIALIZED = True
         print("BMP sensor initialized successfully")
     except(Exception) as e:
@@ -109,8 +110,13 @@ def init_sd_card(spi_id=1, sck_pin=10, mosi_pin=11, miso_pin=8, cs_pin=9):
         
         SD_INITIALIZED = True
         print("SD card initialized successfully")
-        with open("/sd/flight_data.txt", "a") as f:
-            f.write("\n\nPacket#Timestamp#Altitude#Latitude#Longitude#GPS_Time|\n")
+        
+        global sd_file
+        sd_file = open("/sd/flight_data.txt", "a")
+        sd_file.write("\n\nPacket#Timestamp#Altitude#Latitude#Longitude#GPS_Time|\n")
+        sd_file.flush()      # Flush header to VFS
+        os.sync()            # Commit header immediately to SD card flash
+        
         return sd
     except Exception as e:
         print(f"Failed to initialize SD card: {e}")
@@ -119,14 +125,16 @@ def init_sd_card(spi_id=1, sck_pin=10, mosi_pin=11, miso_pin=8, cs_pin=9):
 
 
 # Write data to SD card
-def write_to_sd(data_line, filename="/sd/flight_data.txt"):
-    if not SD_INITIALIZED:
+def write_to_sd(data_line):
+    global sd_file
+    if not SD_INITIALIZED or sd_file is None:
         return False
     
     try:
-        # Append data to file (create if doesn't exist)
-        with open(filename, 'a') as f:
-            f.write(data_line + '|')
+        # Avoid opening/closing the file on every iteration. Use globally opened file obj.
+        sd_file.write(data_line + '|\n')
+        sd_file.flush()      # Flush internal Python buffer
+        os.sync()            # Force FAT filesystem to write cache to physical SD card
         return True
     except Exception as e:
         print(f"Error writing to SD card: {e}")
@@ -219,7 +227,7 @@ send_cmd(uart_transmitter,'AT+RESET',wait_response=True, debug=True)
 
 send_cmd(uart_transmitter, "AT+ADDRESS=1", wait_response=True, debug=True)
 send_cmd(uart_transmitter, "AT+NETWORKID=18", wait_response=True, debug=True) #5
-send_cmd(uart_transmitter, "AT+BAND=915000000", wait_response=True, debug=True)
+send_cmd(uart_transmitter, "AT+BAND=920000000", wait_response=True, debug=True)
 final_response = send_cmd(uart_transmitter, "AT+PARAMETER=10,8,1,12", wait_response=True, debug=True) # SF=9, BW=9 (125kHz), CR=1, Preamble=12
 if final_response and ("OK" in final_response):
     beeper.duty_u16(1024)  
@@ -294,7 +302,7 @@ while True:
         print("    ✓ Logged to SD")
     
     # Send command and check for response
-    if has_fix<=20:
+    if has_fix<=20 and has_fix>0:
         beeper.duty_u16(1024)  # 50% duty cycle
         beeper.freq(tones["c"])
     response = send_cmd(uart_transmitter, f"AT+SEND=2,{len(msg)},{msg}", wait_response=True, timeout=0.3, debug = True)
