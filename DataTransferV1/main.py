@@ -85,7 +85,7 @@ def init_bmp(sda_pin, scl_pin):
 
 
 # Initialize SD card
-def init_sd_card(spi_id=1, sck_pin=10, mosi_pin=11, miso_pin=8, cs_pin=9):
+def init_sd_card(spi_id=1, sck_pin=10, mosi_pin=11, miso_pin=8, cs_pin=9, remount = False):
     """
     Initialize SD card with SPI
     Default pins for Pico (SPI1):
@@ -105,8 +105,17 @@ def init_sd_card(spi_id=1, sck_pin=10, mosi_pin=11, miso_pin=8, cs_pin=9):
         # Initialize SD card
         sd = sdcard_lib.SDCard(spi, machine.Pin(cs_pin))
         
+        try:
+            if remount:
+                print("unmounting")
+            os.umount('/sd')
+        except OSError:
+            pass
+
         # Mount the filesystem
         os.mount(sd, '/sd')
+        if remount:
+            print("Remounted")
         
         SD_INITIALIZED = True
         print("SD card initialized successfully")
@@ -120,13 +129,13 @@ def init_sd_card(spi_id=1, sck_pin=10, mosi_pin=11, miso_pin=8, cs_pin=9):
         return sd
     except Exception as e:
         print(f"Failed to initialize SD card: {e}")
-        SD_INITIALIZED = False
         return None
 
 
 # Write data to SD card
 def write_to_sd(data_line):
-    global sd_file
+    global sd_file, SD_INITIALIZED
+    print(SD_INITIALIZED)
     if not SD_INITIALIZED or sd_file is None:
         return False
     
@@ -136,6 +145,27 @@ def write_to_sd(data_line):
         sd_file.flush()      # Flush internal Python buffer
         os.sync()            # Force FAT filesystem to write cache to physical SD card
         return True
+    except OSError as e:
+        print(f"\nOSError writing to SD card (Shock/Vibration event): {e}")
+        print("Attempting to recover SD card...\n")
+        try:
+            try:
+                sd_file.close() # Safely ensure previous file object is closed
+            except:
+                pass
+            init_sd_card(spi_id=1, sck_pin=10, mosi_pin=11, miso_pin=8, cs_pin=9, remount=True)
+            if SD_INITIALIZED and sd_file is not None:
+                # Retry writing after recovery
+                sd_file.write(data_line + '|\n')
+                sd_file.flush()
+                try:
+                    os.sync()
+                except AttributeError:
+                    pass
+                return True
+        except Exception as recovery_error:
+            print(f"Failed to recover SD card: {recovery_error}")
+        return False
     except Exception as e:
         print(f"Error writing to SD card: {e}")
         return False
@@ -148,9 +178,10 @@ Obtain GPS data
 NOTE: https://core-electronics.com.au/guides/raspberry-pi-pico/how-to-add-gps-to-a-raspberry-pi-pico/ has the information on parsing GPS data
 NOTE: gps_parser returns positive and negative values for ease in calculations. calculations back to latitude/longtitude are a xy plane conversion
 """
-def get_gps_data(gps_uart, debug=False):
+def get_gps_data(gps_uart, debug=False, raw = False):
     global has_fix
     try:
+        
         # Collect GPS data as fast as possible (0.3 seconds)
         raw_data = ""
         for _ in range(6):
@@ -164,6 +195,8 @@ def get_gps_data(gps_uart, debug=False):
             time.sleep(0.05)
         # Parse the collected data
 
+        if raw:
+            print(f"\nRaw GPS data: {raw_data}\n")
         if len(raw_data) > 0:
             data = gps_parser.parse_gps_data(raw_data)
             if debug:
